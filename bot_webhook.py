@@ -20,7 +20,7 @@ application = Application.builder().token(TOKEN).build()
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(PAYMENT_MESSAGE)
 
-# /approve USER_ID handler (μόνο από admin)
+# /approve handler (μόνο από admin)
 async def approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.from_user.username != ADMIN_USERNAME:
         await update.message.reply_text("❌ Δεν έχεις άδεια για αυτή την εντολή.")
@@ -40,12 +40,7 @@ async def approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
 application.add_handler(CommandHandler("start", start))
 application.add_handler(CommandHandler("approve", approve))
 
-# Sync Flask route (συμβατό με Render)
+# Webhook (sync wrapper με σωστό init)
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    update = Update.de_json(request.get_json(force=True), application.bot)
-    asyncio.run(application.process_update(update))
-    return "OK"
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
+    update = Update.de_jso_
