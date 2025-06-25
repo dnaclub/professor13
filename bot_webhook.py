@@ -32,7 +32,10 @@ async def approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     try:
         user_id = int(context.args[0])
-        await context.bot.send_message(chat_id=user_id, text=f"✅ Η πληρωμή σου εγκρίθηκε! Καλώς ήρθες!
+        await context.bot.send_message(
+    chat_id=user_id,
+    text=f"✅ Η πληρωμή σου εγκρίθηκε! Καλώς ήρθες!\n\n{INVITE_LINK}"
+)
 
 {INVITE_LINK}")
         await update.message.reply_text("🟢 Χρήστης προσκλήθηκε.")
