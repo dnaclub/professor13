@@ -1,2 +1,0 @@
-python-telegram-bot[rate-limiter]==20.3
-Flask==2.3.3
