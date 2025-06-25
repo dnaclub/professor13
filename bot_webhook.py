@@ -28,10 +28,8 @@ async def approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = int(context.args[0])
         await context.bot.send_message(
             chat_id=user_id,
-            text="✅ Η πληρωμή σου εγκρίθηκε! Καλώς ήρθες!
-
-" + INVITE_LINK
-        )
+           text="✅ Η πληρωμή σου εγκρίθηκε! Καλώς ήρθες!\n\n" + INVITE_LINK
+ )
         await update.message.reply_text("🟢 Χρήστης προσκλήθηκε.")
     except Exception as e:
         await update.message.reply_text(f"⚠️ Σφάλμα: {e}")
