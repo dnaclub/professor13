@@ -24,7 +24,7 @@ async def approve_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Screenshot handler με κουμπί
 async def screenshot_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.photo:
+    if update.message and update.message.photo:
         user = update.effective_user
         file_id = update.message.photo[-1].file_id
         keyboard = InlineKeyboardMarkup(
