@@ -3,13 +3,13 @@ from telegram.ext import (
     Application, CommandHandler, MessageHandler,
     CallbackQueryHandler, ContextTypes, filters
 )
-from config import TOKEN, ADMIN_USERNAME, INVITE_LINK, PAYMENT_MESSAGE
+from config import TOKEN, ADMIN_USER_ID, INVITE_LINK, PAYMENT_MESSAGE
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(PAYMENT_MESSAGE)
 
 async def approve_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.from_user.username != ADMIN_USERNAME:
+    if update.message.from_user.id != ADMIN_USER_ID:
         await update.message.reply_text("❌ Δεν έχεις άδεια για αυτή την εντολή.")
         return
     try:
@@ -23,7 +23,6 @@ async def approve_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"⚠️ Σφάλμα: {e}")
 
 async def screenshot_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Ελέγχει αν υπάρχει μήνυμα και αν είναι photo
     if update.message and update.message.photo:
         user = update.effective_user
         file_id = update.message.photo[-1].file_id
@@ -32,7 +31,7 @@ async def screenshot_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         try:
             await context.bot.send_photo(
-                chat_id=ADMIN_USERNAME,
+                chat_id=ADMIN_USER_ID,
                 photo=file_id,
                 caption=f"ΝΕΟ screenshot πληρωμής!\nUser: @{user.username} | ID: {user.id}",
                 reply_markup=keyboard
@@ -41,7 +40,6 @@ async def screenshot_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         except Exception as e:
             await update.message.reply_text(f"⚠️ Σφάλμα κατά την προώθηση στον admin: {e}")
     else:
-        # Ασφαλής απάντηση μόνο αν υπάρχει μήνυμα
         if update.message:
             await update.message.reply_text("❌ Παρακαλώ στείλε φωτογραφία/screenshot ως αρχείο εικόνας.")
 
@@ -51,7 +49,7 @@ async def button_approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
 
     # Μόνο admin μπορεί να εγκρίνει
-    if user.username != ADMIN_USERNAME:
+    if user.id != ADMIN_USER_ID:
         await query.edit_message_caption(caption="⛔ Δεν έχεις άδεια να εγκρίνεις χρήστες.")
         return
 
