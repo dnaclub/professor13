@@ -9,7 +9,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(PAYMENT_MESSAGE)
 
 async def approve_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.from_user.username != "Professorbetsadmin":
+    if update.message.from_user.username != ADMIN_USERNAME:
         await update.message.reply_text("❌ Δεν έχεις άδεια για αυτή την εντολή.")
         return
     try:
@@ -22,40 +22,42 @@ async def approve_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"⚠️ Σφάλμα: {e}")
 
-# Screenshot handler με κουμπί
 async def screenshot_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Ελέγχει αν υπάρχει μήνυμα και αν είναι photo
     if update.message and update.message.photo:
         user = update.effective_user
         file_id = update.message.photo[-1].file_id
         keyboard = InlineKeyboardMarkup(
             [[InlineKeyboardButton("✅ Έγκριση", callback_data=f"approve_{user.id}")]]
         )
-        # Στέλνει στον admin φωτογραφία + κουμπί
-        await context.bot.send_photo(
-            chat_id=ADMIN_USERNAME,
-            photo=file_id,
-            caption=f"ΝΕΟ screenshot πληρωμής!\nUser: @{user.username} | ID: {user.id}",
-            reply_markup=keyboard
-        )
-        await update.message.reply_text("📸 Η απόδειξή σου καταχωρήθηκε! Θα ενημερωθείς μόλις εγκριθεί.")
+        try:
+            await context.bot.send_photo(
+                chat_id=ADMIN_USERNAME,
+                photo=file_id,
+                caption=f"ΝΕΟ screenshot πληρωμής!\nUser: @{user.username} | ID: {user.id}",
+                reply_markup=keyboard
+            )
+            await update.message.reply_text("📸 Η απόδειξή σου καταχωρήθηκε! Θα ενημερωθείς μόλις εγκριθεί.")
+        except Exception as e:
+            await update.message.reply_text(f"⚠️ Σφάλμα κατά την προώθηση στον admin: {e}")
     else:
-        await update.message.reply_text("❌ Παρακαλώ στείλε φωτογραφία/screenshot ως αρχείο εικόνας.")
+        # Ασφαλής απάντηση μόνο αν υπάρχει μήνυμα
+        if update.message:
+            await update.message.reply_text("❌ Παρακαλώ στείλε φωτογραφία/screenshot ως αρχείο εικόνας.")
 
-# Handler για το inline κουμπί "Έγκριση"
 async def button_approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user = update.effective_user
 
-    # Μόνο admin μπορεί να πατήσει!
+    # Μόνο admin μπορεί να εγκρίνει
     if user.username != ADMIN_USERNAME:
         await query.edit_message_caption(caption="⛔ Δεν έχεις άδεια να εγκρίνεις χρήστες.")
         return
 
-    # Παίρνουμε το user_id από το callback_data
+    # Παίρνει το user_id από το callback_data
     if query.data.startswith("approve_"):
         approved_user_id = int(query.data.split("_")[1])
-        # Στέλνει invite στον χρήστη
         await context.bot.send_message(
             chat_id=approved_user_id,
             text="✅ Η πληρωμή σου εγκρίθηκε! Καλώς ήρθες!\n\n" + INVITE_LINK
