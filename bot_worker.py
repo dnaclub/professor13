@@ -9,7 +9,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(PAYMENT_MESSAGE)
 
 async def approve_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.from_user.username != ADMIN_USERNAME:
+    if update.message.from_user.username != "Professorbetsadmin":
         await update.message.reply_text("❌ Δεν έχεις άδεια για αυτή την εντολή.")
         return
     try:
