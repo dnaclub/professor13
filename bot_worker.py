@@ -1,8 +1,8 @@
 import aiosqlite
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    Application, CommandHandler, MessageHandler,
-    CallbackQueryHandler, ContextTypes, filters
+    Application, CommandHandler, MessageHandler, CallbackQueryHandler,
+    ContextTypes, filters, AIORateLimiter
 )
 from config import TOKEN, ADMIN_USER_ID, INVITE_LINK, PAYMENT_MESSAGE, CHANNEL_ID
 from datetime import datetime, timedelta
@@ -90,80 +90,63 @@ async def button_approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 # ------- AUTO CHECK -------
-async def check_expired_users(app: Application):
-    while True:
-        now = datetime.utcnow()
-        async with aiosqlite.connect(DB_FILE) as db:
-            async with db.execute("SELECT user_id, username, expire_date, warned FROM subscribers") as cursor:
-                async for row in cursor:
-                    user_id, username, expire_date, warned = row
-                    expire_dt = datetime.fromisoformat(expire_date)
-                    days_left = (expire_dt - now).days
+async def check_expired_users(application: Application):
+    now = datetime.utcnow()
+    async with aiosqlite.connect(DB_FILE) as db:
+        async with db.execute("SELECT user_id, username, expire_date, warned FROM subscribers") as cursor:
+            async for row in cursor:
+                user_id, username, expire_date, warned = row
+                expire_dt = datetime.fromisoformat(expire_date)
+                days_left = (expire_dt - now).days
 
-                    # 1. Ειδοποίηση 3 μέρες πριν
-                    if 0 < days_left <= 3 and not warned:
-                        try:
-                            await app.bot.send_message(
-                                chat_id=user_id,
-                                text="🔔 Η συνδρομή σου λήγει σε {} μέρες. Για ανανέωση, πλήρωσε ξανά και στείλε απόδειξη!".format(days_left)
-                            )
-                            await db.execute("UPDATE subscribers SET warned=1 WHERE user_id=?", (user_id,))
-                            await db.commit()
-                        except Exception:
-                            pass
-
-                    # 2. Kick όταν λήξει
-                    if now >= expire_dt:
-                        try:
-                            # Προσπάθησε να αφαιρέσεις από το κανάλι (αν είναι ακόμα μέλος)
-                            await app.bot.ban_chat_member(CHANNEL_ID, user_id)
-                            await app.bot.unban_chat_member(CHANNEL_ID, user_id)
-                        except Exception:
-                            pass
-                        try:
-                            await app.bot.send_message(
-                                chat_id=user_id,
-                                text="❌ Η συνδρομή σου έληξε και αφαιρέθηκες από το κανάλι."
-                            )
-                        except Exception:
-                            pass
-                        await db.execute("DELETE FROM subscribers WHERE user_id=?", (user_id,))
+                # 1. Ειδοποίηση 3 μέρες πριν
+                if 0 < days_left <= 3 and not warned:
+                    try:
+                        await application.bot.send_message(
+                            chat_id=user_id,
+                            text="🔔 Η συνδρομή σου λήγει σε {} μέρες. Για ανανέωση, πλήρωσε ξανά και στείλε απόδειξη!".format(days_left)
+                        )
+                        await db.execute("UPDATE subscribers SET warned=1 WHERE user_id=?", (user_id,))
                         await db.commit()
-        await asyncio.sleep(3600)  # έλεγχος κάθε 1 ώρα
+                    except Exception:
+                        pass
 
-# ------- MAIN -------
-if __name__ == "__main__":
-    import asyncio
+                # 2. Kick όταν λήξει
+                if now >= expire_dt:
+                    try:
+                        await application.bot.ban_chat_member(CHANNEL_ID, user_id)
+                        await application.bot.unban_chat_member(CHANNEL_ID, user_id)
+                    except Exception:
+                        pass
+                    try:
+                        await application.bot.send_message(
+                            chat_id=user_id,
+                            text="❌ Η συνδρομή σου έληξε και αφαιρέθηκες από το κανάλι."
+                        )
+                    except Exception:
+                        pass
+                    await db.execute("DELETE FROM subscribers WHERE user_id=?", (user_id,))
+                    await db.commit()
 
-    asyncio.run(init_db())
-
-    application = Application.builder().token(TOKEN).build()
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("approve", approve_command))
-    application.add_handler(MessageHandler(filters.PHOTO, screenshot_handler))
-    application.add_handler(CallbackQueryHandler(button_approve))
-
-    # Βάζουμε το background task για έλεγχο λήξης
-    application.job_queue.run_once(lambda c: asyncio.create_task(check_expired_users(application)), when=1)
-
-    application.run_polling()
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters, AIORateLimiter
-
+# ------- BACKGROUND TASK -------
 async def background_check(context: ContextTypes.DEFAULT_TYPE):
     await check_expired_users(context.application)
 
-if __name__ == "__main__":
-    import asyncio
-
-    asyncio.run(init_db())
-
+# ------- MAIN -------
+async def main():
+    await init_db()
     application = Application.builder().token(TOKEN).rate_limiter(AIORateLimiter()).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("approve", approve_command))
     application.add_handler(MessageHandler(filters.PHOTO, screenshot_handler))
     application.add_handler(CallbackQueryHandler(button_approve))
 
-    # Προσθέτουμε το job κάθε ώρα
     application.job_queue.run_repeating(background_check, interval=3600, first=10)
 
-    application.run_polling()
+    await application.initialize()
+    await application.start()
+    await application.updater.start_polling()
+    await application.updater.idle()
+
+if __name__ == "__main__":
+    asyncio.run(main())
