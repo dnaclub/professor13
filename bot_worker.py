@@ -147,3 +147,23 @@ if __name__ == "__main__":
     application.job_queue.run_once(lambda c: asyncio.create_task(check_expired_users(application)), when=1)
 
     application.run_polling()
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters, AIORateLimiter
+
+async def background_check(context: ContextTypes.DEFAULT_TYPE):
+    await check_expired_users(context.application)
+
+if __name__ == "__main__":
+    import asyncio
+
+    asyncio.run(init_db())
+
+    application = Application.builder().token(TOKEN).rate_limiter(AIORateLimiter()).build()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("approve", approve_command))
+    application.add_handler(MessageHandler(filters.PHOTO, screenshot_handler))
+    application.add_handler(CallbackQueryHandler(button_approve))
+
+    # Προσθέτουμε το job κάθε ώρα
+    application.job_queue.run_repeating(background_check, interval=3600, first=10)
+
+    application.run_polling()
