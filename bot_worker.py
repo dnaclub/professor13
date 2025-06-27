@@ -141,7 +141,8 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_menu))
     app.add_handler(MessageHandler(filters.PHOTO, screenshot_handler))
-    app.add_handler(CallbackQueryHandler(approve_callback, pattern=r"^approve_\\d+$"))
+    # Σωστό pattern με μία backslash
+    app.add_handler(CallbackQueryHandler(approve_callback, pattern=r"^approve_\d+$"))
     print("🤖 Bot τρέχει...")
     app.run_polling()
 
