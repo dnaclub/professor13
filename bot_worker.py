@@ -28,7 +28,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# --- Δημιουργία πίνακα αν δεν υπάρχει ---
+# Δημιουργία πίνακα αν δεν υπάρχει
 async def init_db():
     async with aiosqlite.connect(DB_FILE) as db:
         await db.execute("""
@@ -41,11 +41,11 @@ async def init_db():
         """)
         await db.commit()
 
-# --- Καλείται κατά την εκκίνηση του bot ---
+# Καλείται κατά την εκκίνηση του bot
 async def on_startup(app: Application):
     await init_db()
 
-# --- Menu ---
+# Προετοιμασία του μενού για απλούς χρήστες
 def main_menu():
     keyboard = [
         ["🟢 Συνδρομή", "🔁 Ανανέωση"],
@@ -53,11 +53,20 @@ def main_menu():
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-# --- /start ---
+# /start: Payment message & menu ή Admin panel αν admin
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(PAYMENT_MESSAGE, reply_markup=main_menu())
+    user_id = update.effective_user.id
+    if user_id == ADMIN_USER_ID:
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📋 Λίστα Συνδρομητών", callback_data="panel_list")],
+            [InlineKeyboardButton("♻️ Ανανέωση Συνδρομής", callback_data="panel_renew")],
+            [InlineKeyboardButton("❌ Διαγραφή Συνδρομής", callback_data="panel_remove")]
+        ])
+        await update.message.reply_text("🔧 Admin Panel:", reply_markup=kb)
+    else:
+        await update.message.reply_text(PAYMENT_MESSAGE, reply_markup=main_menu())
 
-# --- /subs (admin μόνο) ---
+# /subs (admin μόνο)
 async def subs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_USER_ID:
         return
@@ -76,7 +85,7 @@ async def subs(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text += "Κανείς."
     await update.message.reply_text(text)
 
-# --- Handle menu buttons ---
+# Χειρισμός επιλογών menu (για απλούς χρήστες)
 async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     uid = update.effective_user.id
@@ -113,7 +122,7 @@ async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📩 Επικοινώνησε με τον admin: https://t.me/professorbetts"
         )
 
-# --- Screenshot handler ---
+# Δέχεται screenshot και στέλνει στον admin για έγκριση
 async def screenshot_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.photo:
         return await update.message.reply_text("❌ Στείλε φωτογραφία με απόδειξη πληρωμής.")
@@ -129,7 +138,7 @@ async def screenshot_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
     await update.message.reply_text("📸 Η απόδειξή σου εστάλη! Περιμένετε έγκριση.")
 
-# --- Approve callback ---
+# Διαχείριση approve callback
 async def approve_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -164,7 +173,7 @@ async def approve_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await query.edit_message_caption("✅ Ο χρήστης εγκρίθηκε.", reply_markup=None)
 
-# --- Admin Panel via Telegram ---
+# Admin Panel μέσω Telegram
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_USER_ID:
         return
@@ -219,20 +228,18 @@ async def admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await db.commit()
             await update.message.reply_text(f"❌ Διαγράφηκε η συνδρομή του {uid}.")
 
-# --- Main ---
-def main():
+# Main
+def main():  
     app = Application.builder().token(TOKEN).build()
     app.post_init = on_startup
-    # user handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("subs", subs))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_menu))
-    app.add_handler(MessageHandler(filters.PHOTO, screenshot_handler))
-    app.add_handler(CallbackQueryHandler(approve_callback, pattern=r"^approve_\d+$"))
-    # admin panel handlers
     app.add_handler(CommandHandler("admin", admin_panel))
     app.add_handler(CallbackQueryHandler(admin_callback, pattern=r"^panel_"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, admin_text), group=1)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_menu))
+    app.add_handler(MessageHandler(filters.PHOTO, screenshot_handler))
+    app.add_handler(CallbackQueryHandler(approve_callback, pattern=r"^approve_\d+$"))
     logging.info("🤖 Bot τρέχει...")
     app.run_polling()
 
