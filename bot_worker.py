@@ -11,7 +11,7 @@ from telegram.ext import (
 from config import TOKEN, ADMIN_USER_ID, INVITE_LINK, PAYMENT_MESSAGE, CHANNEL_ID
 
 DB_FILE = "subscribers.db"
-SUB_DURATION = 0.0035  # days
+SUB_DURATION = 0.0035  # ~5 λεπτά (5 / 1440)
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -30,24 +30,25 @@ async def init_db():
         """)
         await db.commit()
 
-# --- Commands ---
+# --- /start Command ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logging.info(f"/start from {update.effective_user.id}")
     await update.message.reply_text(PAYMENT_MESSAGE)
 
+# --- /subs για admin ---
 async def subs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_USER_ID:
         return
-    text = "Ενεργές Συνδρομές:\n"
+    text = "📋 Ενεργές Συνδρομές:\n"
     now = datetime.utcnow()
     async with aiosqlite.connect(DB_FILE) as db:
         async with db.execute("SELECT user_id, username, expires_at FROM subscribers") as cursor:
             async for user_id, username, expires_at in cursor:
                 expires = datetime.fromisoformat(expires_at)
                 left = (expires - now).days
-                expires_str = expires.strftime("%d-%m-%Y")
+                expires_str = expires.strftime("%d-%m-%Y %H:%M")
                 text += f"- {username or user_id} (ID: {user_id}): λήγει σε {left} μέρες ({expires_str})\n"
-    await update.message.reply_text(text)
+    await update.message.reply_text(text or "Δεν υπάρχουν ενεργές συνδρομές.")
 
 # --- Screenshot Handler ---
 async def screenshot_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -55,25 +56,26 @@ async def screenshot_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("❌ Παρακαλώ στείλε screenshot ως φωτογραφία!")
         return
     user = update.effective_user
-    caption = (
-        f"🆕 Screenshot από @{user.username or user.id}\n\nApprove;"
-    )
+    caption = f"🆕 Screenshot από @{user.username or user.id}\n\nApprove;"
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("✅ APPROVE", callback_data=f"approve_{user.id}")]
     ])
     await context.bot.send_photo(
-        chat_id=ADMIN_USER_ID, photo=update.message.photo[-1].file_id, 
-        caption=caption, reply_markup=kb
+        chat_id=ADMIN_USER_ID,
+        photo=update.message.photo[-1].file_id,
+        caption=caption,
+        reply_markup=kb
     )
     await update.message.reply_text("📸 Η απόδειξή σου καταχωρήθηκε! Θα ενημερωθείς μόλις εγκριθεί.")
 
-# --- Approve Callback ---
+# --- Approve Handler ---
 async def approve_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     if update.effective_user.id != ADMIN_USER_ID:
         await query.edit_message_caption("❌ Δεν έχεις άδεια για approve.", reply_markup=None)
         return
+
     user_id = int(query.data.split("_")[1])
     username = None
     try:
@@ -81,17 +83,20 @@ async def approve_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         username = chat.username
     except Exception:
         username = str(user_id)
+
     now = datetime.utcnow()
     expires = now + timedelta(days=SUB_DURATION)
+
     async with aiosqlite.connect(DB_FILE) as db:
         await db.execute(
             "INSERT OR REPLACE INTO subscribers (user_id, username, approved_at, expires_at) VALUES (?, ?, ?, ?)",
             (user_id, username, now.isoformat(), expires.isoformat())
         )
         await db.commit()
+
     # Invite user
     try:
-        expires_str = expires.strftime("%d-%m-%Y")
+        expires_str = expires.strftime("%d-%m-%Y %H:%M")
         await context.bot.send_message(
             chat_id=user_id,
             text=f"✅ Η πληρωμή σου εγκρίθηκε! Καλώς ήρθες!\n\n{INVITE_LINK}\n\nΗ συνδρομή σου ισχύει μέχρι {expires_str}."
@@ -100,8 +105,9 @@ async def approve_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await query.edit_message_caption(f"⚠️ Σφάλμα invite: {e}", reply_markup=None)
 
-# --- Auto-check Expired Users ---
+# --- Έλεγχος Ληγμένων Συνδρομών ---
 async def check_expired_users(app: Application):
+    logging.info("✅ Τρέχει έλεγχος για ληγμένες συνδρομές...")
     now = datetime.utcnow()
     async with aiosqlite.connect(DB_FILE) as db:
         async with db.execute("SELECT user_id, username, expires_at FROM subscribers") as cursor:
@@ -110,14 +116,16 @@ async def check_expired_users(app: Application):
             notify1 = []
             async for user_id, username, expires_at in cursor:
                 expires = datetime.fromisoformat(expires_at)
-                left = (expires - now).days
+                left = (expires - now).total_seconds()
                 if left <= 0:
+                    logging.info(f"❌ Ληγμένη συνδρομή για {user_id} - διαγράφεται")
                     to_remove.append((user_id, username))
-                elif left == 3:
+                elif 60 * 60 * 24 * 3 - 60 < left < 60 * 60 * 24 * 3 + 60:
                     notify3.append((user_id, expires))
-                elif left == 1:
+                elif 60 * 60 * 24 - 60 < left < 60 * 60 * 24 + 60:
                     notify1.append((user_id, expires))
-        # Remove expired
+
+        # Διαγραφή
         for user_id, username in to_remove:
             try:
                 await app.bot.ban_chat_member(CHANNEL_ID, user_id)
@@ -126,15 +134,16 @@ async def check_expired_users(app: Application):
                     text="❌ Η συνδρομή σου έληξε και αφαιρέθηκες από το κανάλι. Για ανανέωση: επικοινώνησε με τον admin."
                 )
             except Exception as e:
-                logging.error(f"Remove user {user_id} failed: {e}")
+                logging.error(f"⚠️ Αποτυχία αφαίρεσης χρήστη {user_id}: {e}")
             await db.execute("DELETE FROM subscribers WHERE user_id=?", (user_id,))
         await db.commit()
-        # Notifications
+
+        # Υπενθυμίσεις
         for user_id, _ in notify3:
             try:
                 await app.bot.send_message(
                     chat_id=user_id,
-                    text="🔔 Σε 3 μέρες λήγει η συνδρομή σου. Για ανανέωση ακολούθησε τα βήματα πληρωμής."
+                    text="🔔 Η συνδρομή σου λήγει σε 3 μέρες. Επικοινώνησε για ανανέωση!"
                 )
             except: pass
         for user_id, _ in notify1:
@@ -145,20 +154,24 @@ async def check_expired_users(app: Application):
                 )
             except: pass
 
-# --- Main ---
+# --- Εκκίνηση ---
 async def on_startup(app: Application):
     await init_db()
-    # Ενεργοποίηση auto job
-    app.job_queue.run_repeating(lambda _: asyncio.create_task(check_expired_users(app)), interval=86400, first=3)
+    # Έλεγχος ληγμένων κάθε 60 δευτερόλεπτα
+    app.job_queue.run_repeating(
+        lambda _: asyncio.create_task(check_expired_users(app)),
+        interval=60,  # κάθε 1 λεπτό
+        first=3
+    )
 
 def main():
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("subs", subs))
     app.add_handler(MessageHandler(filters.PHOTO, screenshot_handler))
-    app.add_handler(CallbackQueryHandler(approve_callback, pattern=r"^approve_\d+$"))
+    app.add_handler(CallbackQueryHandler(approve_callback, pattern=r"^approve_\\d+$"))
     app.post_init = on_startup
-    print("✅ Το bot είναι ΕΝΕΡΓΟ και επικοινωνεί! (Minimal Test)")
+    print("✅ Το bot είναι ΕΝΕΡΓΟ σε test mode (5 λεπτών)")
     app.run_polling()
 
 if __name__ == "__main__":
