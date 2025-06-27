@@ -19,13 +19,13 @@ from telegram.ext import (
 )
 from config import TOKEN, ADMIN_USER_ID, INVITE_LINK, PAYMENT_MESSAGE, CHANNEL_ID, DB_FILE
 
-# Διάρκεια συνδρομής (ημέρες)
-SUB_DURATION = 30
+SUB_DURATION = 30  # ημέρες διάρκειας συνδρομής
 
-# Logging
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
 
-# Δημιουργία πίνακα αν δεν υπάρχει
+# ------------------------------------------------------------------------------
+# Βάση
+# ------------------------------------------------------------------------------
 async def init_db():
     async with aiosqlite.connect(DB_FILE) as db:
         await db.execute("""
@@ -38,22 +38,45 @@ async def init_db():
         """)
         await db.commit()
 
-# Κλήση κατά την εκκίνηση
 async def on_startup(app: Application):
     await init_db()
 
-# Menu για απλούς χρήστες
+# ------------------------------------------------------------------------------
+# /start
+# ------------------------------------------------------------------------------
 def main_menu():
     return ReplyKeyboardMarkup(
         [["🟢 Συνδρομή", "🔁 Ανανέωση"], ["📊 Στατιστικά", "📞 Επικοινωνία"]],
         resize_keyboard=True
     )
 
-# /start: payment + menu
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(PAYMENT_MESSAGE, reply_markup=main_menu())
 
-# /admin: admin panel
+# ------------------------------------------------------------------------------
+# /subs (admin only)
+# ------------------------------------------------------------------------------
+async def subs(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_USER_ID:
+        return
+    await init_db()
+    now = datetime.utcnow()
+    text = "📋 Ενεργές Συνδρομές:\n"
+    found = False
+    async with aiosqlite.connect(DB_FILE) as db:
+        async with db.execute("SELECT user_id, username, expires_at FROM subscribers") as cur:
+            async for uid, uname, exp_at in cur:
+                found = True
+                exp = datetime.fromisoformat(exp_at)
+                days = (exp - now).days
+                text += f"- {uname or uid} (ID:{uid}): λήγει σε {days} ημέρες ({exp.strftime('%d-%m-%Y')})\n"
+    if not found:
+        text += "Κανείς."
+    await update.message.reply_text(text)
+
+# ------------------------------------------------------------------------------
+# Admin panel via /admin
+# ------------------------------------------------------------------------------
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_USER_ID:
         return
@@ -64,7 +87,6 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ])
     await update.message.reply_text("🔧 Admin Panel:", reply_markup=kb)
 
-# Callback για admin panel κουμπιά
 async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -72,7 +94,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "panel_list":
         await init_db()
-        text = "📋 **Συνδρομητές**\n"
+        text = "📋 Συνδρομητές:\n"
         now = datetime.utcnow()
         async with aiosqlite.connect(DB_FILE) as db:
             async with db.execute("SELECT user_id, username, expires_at FROM subscribers") as cur:
@@ -80,7 +102,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     exp = datetime.fromisoformat(exp_at)
                     days = (exp - now).days
                     text += f"- {uname or uid}: λήγει σε {days} ημέρες ({exp.strftime('%d-%m-%Y')})\n"
-        await query.edit_message_text(text, parse_mode="Markdown")
+        await query.edit_message_text(text)
 
     elif data == "panel_renew":
         await query.edit_message_text("♻️ Στείλε το user_id που θες να ανανεώσεις.")
@@ -90,12 +112,11 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("🗑️ Στείλε το user_id που θες να διαγράψεις.")
         context.user_data["admin_action"] = "remove"
 
-# Εκτέλεση ενέργειας admin μετά το panel
 async def admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_USER_ID:
         return
     action = context.user_data.pop("admin_action", None)
-    if not action or not update.message.text.isdigit():
+    if action is None or not update.message.text.isdigit():
         return
     uid = int(update.message.text)
     await init_db()
@@ -110,7 +131,9 @@ async def admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await db.commit()
             await update.message.reply_text(f"🗑️ Διαγράφηκε η συνδρομή του {uid}.")
 
-# Χειρισμός επιλογών menu για απλούς χρήστες
+# ------------------------------------------------------------------------------
+# User menu handlers
+# ------------------------------------------------------------------------------
 async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     uid = update.effective_user.id
@@ -128,21 +151,22 @@ async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"✅ Λήγει σε {days} ημέρες ({exp.strftime('%d-%m-%Y')}).")
 
     elif text == "🔁 Ανανέωση":
-        await update.message.reply_text("🔁 Στείλε screenshot απόδειξης πληρωμής εδώ για ανανέωση.")
+        await update.message.reply_text("🔁 Στείλε screenshot για ανανέωση.")
 
     elif text == "📊 Στατιστικά":
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📈 Δες Στατιστικά", url="https://app.bet-analytix.com/bankroll/1051507")]
-        ])
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("📈 Στατιστικά", url="https://app.bet-analytix.com/bankroll/1051507")]])
         await update.message.reply_text("📊 Στατιστικά:", reply_markup=kb)
 
     elif text == "📞 Επικοινωνία":
-        await update.message.reply_text("📩 Επικοινώνησε με τον admin: https://t.me/professorbetts")
+        await update.message.reply_text("📩 https://t.me/professorbetts")
 
-# Screenshot handler: στέλνει στον admin για έγκριση
+# ------------------------------------------------------------------------------
+# Screenshot → Approve
+# ------------------------------------------------------------------------------
 async def screenshot_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.photo:
-        return await update.message.reply_text("❌ Στείλε φωτογραφία με απόδειξη πληρωμής.")
+        await update.message.reply_text("❌ Στείλε φωτογραφία με απόδειξη.")
+        return
     user = update.effective_user
     kb = InlineKeyboardMarkup([[InlineKeyboardButton("✅ APPROVE", callback_data=f"approve_{user.id}")]])
     await context.bot.send_photo(
@@ -153,12 +177,12 @@ async def screenshot_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
     await update.message.reply_text("📸 Εστάλη για έγκριση.")
 
-# Approve callback: εγκρίνει συνδρομή
 async def approve_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     if update.effective_user.id != ADMIN_USER_ID:
-        return await query.edit_message_caption("❌ Δεν έχεις άδεια.", reply_markup=None)
+        await query.edit_message_caption("❌ Δεν έχεις άδεια.", reply_markup=None)
+        return
 
     user_id = int(query.data.split("_")[1])
     now = datetime.utcnow()
@@ -173,15 +197,13 @@ async def approve_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await context.bot.send_message(
         chat_id=user_id,
-        text=(
-            f"✅ Η πληρωμή σου εγκρίθηκε!\n\n"
-            f"{INVITE_LINK}\n\n"
-            f"Η συνδρομή σου ισχύει μέχρι {expires.strftime('%d-%m-%Y')}."
-        )
+        text=f"✅ Εγκρίθηκε! Invite: {INVITE_LINK}\nΛήγει: {expires.strftime('%d-%m-%Y')}."
     )
     await query.edit_message_caption("✅ Εγκρίθηκε.", reply_markup=None)
 
+# ------------------------------------------------------------------------------
 # Main
+# ------------------------------------------------------------------------------
 def main():
     app = (
         Application.builder()
@@ -190,19 +212,19 @@ def main():
         .build()
     )
 
-    # Admin panel
+    # Admin
     app.add_handler(CommandHandler("admin", admin_panel))
     app.add_handler(CallbackQueryHandler(admin_callback, pattern=r"^panel_"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, admin_text), group=1)
-
-    # User interactions
-    app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("subs", subs))
+
+    # Users
+    app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_menu))
     app.add_handler(MessageHandler(filters.PHOTO, screenshot_handler))
     app.add_handler(CallbackQueryHandler(approve_callback, pattern=r"^approve_\d+$"))
 
-    logging.info("🤖 Bot τρέχει...")
+    logging.info("🤖 Bot τρέχει…")
     app.run_polling()
 
 if __name__ == "__main__":
