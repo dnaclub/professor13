@@ -141,7 +141,13 @@ async def main():
     application.add_handler(CommandHandler("approve", approve_command))
     application.add_handler(MessageHandler(filters.PHOTO, screenshot_handler))
     application.add_handler(CallbackQueryHandler(button_approve))
-    # Προσωρινά για το chatid:
-    application.add_handler(CommandHandler("chatid", print_chat_id))
 
-    application.job_queue.run_repeating(background_check, interval_
+    application.job_queue.run_repeating(background_check, interval=3600, first=10)
+
+    await application.initialize()
+    await application.start()
+    await application.updater.start_polling()
+    await application.updater.idle()
+
+if __name__ == "__main__":
+    asyncio.run(main())
