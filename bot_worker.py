@@ -45,7 +45,8 @@ async def subs(update: Update, context: ContextTypes.DEFAULT_TYPE):
             async for user_id, username, expires_at in cursor:
                 expires = datetime.fromisoformat(expires_at)
                 left = (expires - now).days
-                text += f"- {username or user_id}: λήγει σε {left} μέρες\n"
+                expires_str = expires.strftime("%d-%m-%Y")
+                text += f"- {username or user_id} (ID: {user_id}): λήγει σε {left} μέρες ({expires_str})\n"
     await update.message.reply_text(text)
 
 # --- Screenshot Handler ---
@@ -90,9 +91,10 @@ async def approve_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await db.commit()
     # Invite user
     try:
+        expires_str = expires.strftime("%d-%m-%Y")
         await context.bot.send_message(
             chat_id=user_id,
-            text=f"✅ Η πληρωμή σου εγκρίθηκε! Καλώς ήρθες!\n\n{INVITE_LINK}\n\nΗ συνδρομή σου ισχύει μέχρι {expires.date()}."
+            text=f"✅ Η πληρωμή σου εγκρίθηκε! Καλώς ήρθες!\n\n{INVITE_LINK}\n\nΗ συνδρομή σου ισχύει μέχρι {expires_str}."
         )
         await query.edit_message_caption("✅ Ο χρήστης εγκρίθηκε, καταχωρήθηκε και έλαβε το invite.", reply_markup=None)
     except Exception as e:
