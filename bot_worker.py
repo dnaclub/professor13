@@ -11,7 +11,7 @@ from telegram.ext import (
 from config import TOKEN, ADMIN_USER_ID, INVITE_LINK, PAYMENT_MESSAGE, CHANNEL_ID
 
 DB_FILE = "subscribers.db"
-SUB_DURATION = 30  # days
+SUB_DURATION = 0.0035  # days
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO
