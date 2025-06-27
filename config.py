@@ -8,3 +8,4 @@ PAYMENT_MESSAGE = (
     "📸 Μετά την πληρωμή, στείλε screenshot εδώ για έγκριση."
 )
 CHANNEL_ID = -1002371360566
+DB_FILE = "subscribers.db"
