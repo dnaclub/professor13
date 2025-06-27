@@ -1,20 +1,36 @@
+
 import logging
 import aiosqlite
 import asyncio
 from datetime import datetime
 from telegram.ext import Application
-from config import TOKEN, DB_FILE  # Φροντίστε να υπάρχει το DB_FILE = "subscribers.db" στο config.py
+from config import TOKEN
+
+DB_FILE = "subscribers.db"
 
 # Μηνύματα υπενθύμισης
 REMINDER_3_DAYS = "🔔 Η συνδρομή σου λήγει σε 3 μέρες. Επικοινώνησε για ανανέωση!"
 REMINDER_1_DAY = "🔔 Η συνδρομή σου λήγει αύριο. Επικοινώνησε άμεσα για ανανέωση!"
 
-# Logging ρύθμιση
+# Logging
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 
-# Αποστολή υπενθυμίσεων
+# Δημιουργία πίνακα αν δεν υπάρχει
+async def init_db():
+    async with aiosqlite.connect(DB_FILE) as db:
+        await db.execute("""
+        CREATE TABLE IF NOT EXISTS subscribers (
+            user_id INTEGER PRIMARY KEY,
+            username TEXT,
+            approved_at TEXT,
+            expires_at TEXT
+        )
+        """)
+        await db.commit()
+
+# Υπενθυμίσεις
 async def notify_users(bot):
     logging.info("📢 Έναρξη αποστολής υπενθυμίσεων")
     now = datetime.utcnow()
@@ -37,11 +53,11 @@ async def notify_users(bot):
                 except Exception as e:
                     logging.error(f"❌ Σφάλμα αποστολής σε {user_id}: {e}")
 
-# Κύρια συνάρτηση
+# Main
 async def main():
+    await init_db()
     app = Application.builder().token(TOKEN).build()
     await notify_users(app.bot)
 
-# Εκκίνηση
 if __name__ == "__main__":
     asyncio.run(main())
