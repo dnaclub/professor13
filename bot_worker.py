@@ -3,8 +3,11 @@ import aiosqlite
 import asyncio
 from datetime import datetime, timedelta
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatMember
-from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters, CallbackQueryHandler
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    Application, CommandHandler, MessageHandler,
+    CallbackQueryHandler, ContextTypes, filters
+)
 from config import TOKEN, ADMIN_USER_ID, INVITE_LINK, PAYMENT_MESSAGE, CHANNEL_ID
 
 DB_FILE = "subscribers.db"
@@ -36,11 +39,12 @@ async def subs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_USER_ID:
         return
     text = "Ενεργές Συνδρομές:\n"
+    now = datetime.utcnow()
     async with aiosqlite.connect(DB_FILE) as db:
         async with db.execute("SELECT user_id, username, expires_at FROM subscribers") as cursor:
             async for user_id, username, expires_at in cursor:
                 expires = datetime.fromisoformat(expires_at)
-                left = (expires - datetime.utcnow()).days
+                left = (expires - now).days
                 text += f"- {username or user_id}: λήγει σε {left} μέρες\n"
     await update.message.reply_text(text)
 
@@ -88,7 +92,7 @@ async def approve_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         await context.bot.send_message(
             chat_id=user_id,
-            text=f"✅ Η πληρωμή σου εγκρίθηκε! Καλώς ήρθες!\n\n{INVITE_LINK}"
+            text=f"✅ Η πληρωμή σου εγκρίθηκε! Καλώς ήρθες!\n\n{INVITE_LINK}\n\nΗ συνδρομή σου ισχύει μέχρι {expires.date()}."
         )
         await query.edit_message_caption("✅ Ο χρήστης εγκρίθηκε, καταχωρήθηκε και έλαβε το invite.", reply_markup=None)
     except Exception as e:
