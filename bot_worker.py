@@ -27,4 +27,4 @@ async def notify_users(bot):
 
                     if days_left == 3:
                         await bot.send_message(chat_id=user_id, text=REMINDER_3_DAYS)
-                        logging.info(f"✅ Υπενθύμιση 3 ημερών σε {user_id}"_
+                        logging.info(f"✅ Υπενθύμιση 3 ημερών σε {user_id}")
