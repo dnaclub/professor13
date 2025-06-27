@@ -41,6 +41,10 @@ async def init_db():
         """)
         await db.commit()
 
+# --- Καλείται κατά την εκκίνηση του bot ---
+async def on_startup(app: Application):
+    await init_db()
+
 # --- Menu ---
 def main_menu():
     keyboard = [
@@ -51,11 +55,7 @@ def main_menu():
 
 # --- /start ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await init_db()
-    await update.message.reply_text(
-        PAYMENT_MESSAGE,
-        reply_markup=main_menu()
-    )
+    await update.message.reply_text(PAYMENT_MESSAGE, reply_markup=main_menu())
 
 # --- /subs (admin μόνο) ---
 async def subs(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -164,15 +164,76 @@ async def approve_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await query.edit_message_caption("✅ Ο χρήστης εγκρίθηκε.", reply_markup=None)
 
+# --- Admin Panel via Telegram ---
+async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_USER_ID:
+        return
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📋 Λίστα Συνδρομητών", callback_data="panel_list")],
+        [InlineKeyboardButton("♻️ Ανανέωση Συνδρομής", callback_data="panel_renew")],
+        [InlineKeyboardButton("❌ Διαγραφή Συνδρομής", callback_data="panel_remove")]
+    ])
+    await update.message.reply_text("🔧 Admin Panel:", reply_markup=kb)
+
+async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+
+    if data == "panel_list":
+        await init_db()
+        text = "📋 **Συνδρομητές**\n"
+        now = datetime.utcnow()
+        async with aiosqlite.connect(DB_FILE) as db:
+            async with db.execute("SELECT user_id, username, expires_at FROM subscribers") as cur:
+                async for uid, uname, exp_at in cur:
+                    exp = datetime.fromisoformat(exp_at)
+                    days = (exp - now).days
+                    text += f"- {uname or uid}: λήγει σε {days} ημέρες ({exp.strftime('%d-%m-%Y')})\n"
+        await query.edit_message_text(text, parse_mode="Markdown")
+
+    elif data == "panel_renew":
+        await query.edit_message_text("♻️ Στείλε τώρα το **user_id** που θες να ανανεώσεις.", parse_mode="Markdown")
+        context.user_data["admin_action"] = "renew"
+
+    elif data == "panel_remove":
+        await query.edit_message_text("❌ Στείλε τώρα το **user_id** που θες να διαγράψεις.", parse_mode="Markdown")
+        context.user_data["admin_action"] = "remove"
+
+async def admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_USER_ID:
+        return
+    action = context.user_data.pop("admin_action", None)
+    if not action or not update.message.text.isdigit():
+        return
+    uid = int(update.message.text)
+    await init_db()
+    async with aiosqlite.connect(DB_FILE) as db:
+        if action == "renew":
+            expires = datetime.utcnow() + timedelta(days=SUB_DURATION)
+            await db.execute("UPDATE subscribers SET expires_at=? WHERE user_id=?", (expires.isoformat(), uid))
+            await db.commit()
+            await update.message.reply_text(f"♻️ Ανανεώθηκε η συνδρομή του {uid} έως {expires.strftime('%d-%m-%Y')}.")
+        elif action == "remove":
+            await db.execute("DELETE FROM subscribers WHERE user_id=?", (uid,))
+            await db.commit()
+            await update.message.reply_text(f"❌ Διαγράφηκε η συνδρομή του {uid}.")
+
 # --- Main ---
 def main():
     app = Application.builder().token(TOKEN).build()
+    app.post_init = on_startup
+    # user handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("subs", subs))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_menu))
     app.add_handler(MessageHandler(filters.PHOTO, screenshot_handler))
     app.add_handler(CallbackQueryHandler(approve_callback, pattern=r"^approve_\d+$"))
-    print("🤖 Bot τρέχει...")
+    # admin panel handlers
+    app.add_handler(CommandHandler("admin", admin_panel))
+    app.add_handler(CallbackQueryHandler(admin_callback, pattern=r"^panel_"))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, admin_text), group=1)
+    logging.info("🤖 Bot τρέχει...")
     app.run_polling()
 
 if __name__ == "__main__":
